@@ -163,6 +163,12 @@ public:
 
     // Initialize the tonemapper also with proe-compiled shader
     m_tonemapper.init(&m_allocator, std::span(tonemapper_slang));
+
+    // Get ray tracing properties
+    VkPhysicalDeviceProperties2 prop2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    m_rtProperties.pNext = &m_asProperties;
+    prop2.pNext          = &m_rtProperties;
+    vkGetPhysicalDeviceProperties2(m_app->getPhysicalDevice(), &prop2);
   }
 
   //-------------------------------------------------------------------------------
@@ -338,15 +344,17 @@ public:
     // Load the GLTF resources
     {
       tinygltf::Model teapotModel =
-          nvsamples::loadGltfResources(nvutils::findFile("teapot.gltf", nvsamples::getResourcesDirs()));  // Load the GLTF resources from the file
+          nvsamples::loadGltfResources(nvutils::findFile("teapot.gltf", nvsamples::getResourcesDirs()));
+      // Load the GLTF resources from the file
 
-      tinygltf::Model planeModel =
-          nvsamples::loadGltfResources(nvutils::findFile("plane.gltf", nvsamples::getResourcesDirs()));  // Load the GLTF resources from the file
+      tinygltf::Model planeModel = nvsamples::loadGltfResources(nvutils::findFile("plane.gltf", nvsamples::getResourcesDirs()));
+      // Load the GLTF resources from the file
 
       // Textures
       {
         std::filesystem::path imageFilename = nvutils::findFile("tiled_floor.png", nvsamples::getResourcesDirs());
-        nvvk::Image texture = nvsamples::loadAndCreateImage(cmd, m_stagingUploader, m_app->getDevice(), imageFilename);  // Load the image from the file and create a texture from it
+        nvvk::Image texture = nvsamples::loadAndCreateImage(cmd, m_stagingUploader, m_app->getDevice(), imageFilename);
+        // Load the image from the file and create a texture from it
         NVVK_DBG_NAME(texture.image);
         m_samplerPool.acquireSampler(texture.descriptor.sampler);
         m_textures.emplace_back(texture);  // Store the texture in the vector of textures
@@ -377,17 +385,20 @@ public:
     };
 
 
-    nvsamples::createGltfSceneInfoBuffer(m_sceneResource, m_stagingUploader);  // Create buffers for the scene data (GPU buffers)
+    nvsamples::createGltfSceneInfoBuffer(m_sceneResource, m_stagingUploader);
+    // Create buffers for the scene data (GPU buffers)
 
     m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
     // Scene information
     shaderio::GltfSceneInfo& sceneInfo = m_sceneResource.sceneInfo;
-    sceneInfo.useSky                   = false;                                         // Use light
-    sceneInfo.instances = (shaderio::GltfInstance*)m_sceneResource.bInstances.address;  // Address of the instance buffer
-    sceneInfo.meshes = (shaderio::GltfMesh*)m_sceneResource.bMeshes.address;            // Address of the mesh buffer
-    sceneInfo.materials = (shaderio::GltfMetallicRoughness*)m_sceneResource.bMaterials.address;  // Address of the material buffer
-    sceneInfo.backgroundColor             = {0.85f, 0.85f, 0.85f};                               // The background color
+    sceneInfo.useSky                   = false;  // Use light
+    sceneInfo.instances                = (shaderio::GltfInstance*)m_sceneResource.bInstances.address;
+    // Address of the instance buffer
+    sceneInfo.meshes    = (shaderio::GltfMesh*)m_sceneResource.bMeshes.address;  // Address of the mesh buffer
+    sceneInfo.materials = (shaderio::GltfMetallicRoughness*)m_sceneResource.bMaterials.address;
+    // Address of the material buffer
+    sceneInfo.backgroundColor             = {0.85f, 0.85f, 0.85f};  // The background color
     sceneInfo.numLights                   = 1;
     sceneInfo.punctualLights[0].color     = glm::vec3(1.0f, 1.0f, 1.0f);
     sceneInfo.punctualLights[0].intensity = 4.0f;
@@ -555,9 +566,12 @@ public:
 
     m_sceneResource.sceneInfo.viewProjMatrix = projMatrix * viewMatrix;  // Combine the view and projection matrices
     m_sceneResource.sceneInfo.cameraPosition = m_cameraManip->getEye();  // Get the camera position
-    m_sceneResource.sceneInfo.instances = (shaderio::GltfInstance*)m_sceneResource.bInstances.address;  // Get the address of the instance buffer
-    m_sceneResource.sceneInfo.meshes = (shaderio::GltfMesh*)m_sceneResource.bMeshes.address;  // Get the address of the mesh buffer
-    m_sceneResource.sceneInfo.materials = (shaderio::GltfMetallicRoughness*)m_sceneResource.bMaterials.address;  // Get the address of the material buffer
+    m_sceneResource.sceneInfo.instances      = (shaderio::GltfInstance*)m_sceneResource.bInstances.address;
+    // Get the address of the instance buffer
+    m_sceneResource.sceneInfo.meshes = (shaderio::GltfMesh*)m_sceneResource.bMeshes.address;
+    // Get the address of the mesh buffer
+    m_sceneResource.sceneInfo.materials = (shaderio::GltfMetallicRoughness*)m_sceneResource.bMaterials.address;
+    // Get the address of the material buffer
 
     // Making sure the scene information buffer is updated before rendering
     // Wait that the fragment shader is done reading the previous scene information and wait for the transfer to complete
@@ -578,7 +592,8 @@ public:
 
     // Push constant information, see usage later
     shaderio::TutoPushConstant pushValues{
-        .sceneInfoAddress = (shaderio::GltfSceneInfo*)m_sceneResource.bSceneInfo.address,  // Pass the address of the scene information buffer to the shader
+        .sceneInfoAddress = (shaderio::GltfSceneInfo*)m_sceneResource.bSceneInfo.address,
+        // Pass the address of the scene information buffer to the shader
         .metallicRoughnessOverride = m_metallicRoughnessOverride,  // Override the metallic and roughness values
     };
     const VkPushConstantsInfo pushInfo{
@@ -601,7 +616,8 @@ public:
 
     // Rendering to the GBuffer
     VkRenderingAttachmentInfo colorAttachment = DEFAULT_VkRenderingAttachmentInfo;
-    colorAttachment.loadOp = m_sceneResource.sceneInfo.useSky ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;  // Load the previous content of the GBuffer color attachment (Sky rendering)
+    colorAttachment.loadOp = m_sceneResource.sceneInfo.useSky ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+    // Load the previous content of the GBuffer color attachment (Sky rendering)
     colorAttachment.imageView  = m_gBuffers.getColorImageView(eImgRendered);
     colorAttachment.clearValue = {.color = {m_sceneResource.sceneInfo.backgroundColor.x,
                                             m_sceneResource.sceneInfo.backgroundColor.y,
@@ -637,7 +653,8 @@ public:
     vkCmdBeginRendering(cmd, &renderingInfo);
 
     // All dynamic states are set here
-    m_dynamicPipeline.rasterizationState.cullMode = VK_CULL_MODE_NONE;  // Don't cull any triangles (double-sided rendering)
+    m_dynamicPipeline.rasterizationState.cullMode = VK_CULL_MODE_NONE;
+    // Don't cull any triangles (double-sided rendering)
     m_dynamicPipeline.cmdApplyAllStates(cmd);
     m_dynamicPipeline.cmdSetViewportAndScissor(cmd, m_app->getViewportSize());
     vkCmdSetDepthTestEnable(cmd, VK_TRUE);
@@ -701,8 +718,10 @@ private:
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()};
 
   // Pipeline
-  nvvk::GraphicsPipelineState m_dynamicPipeline;  // The dynamic pipeline state used to set the graphics pipeline state, like viewport, scissor, and depth test
-  nvvk::DescriptorPack m_descPack;  // The descriptor bindings used to create the descriptor set layout and descriptor sets
+  nvvk::GraphicsPipelineState m_dynamicPipeline;
+  // The dynamic pipeline state used to set the graphics pipeline state, like viewport, scissor, and depth test
+  nvvk::DescriptorPack m_descPack;
+  // The descriptor bindings used to create the descriptor set layout and descriptor sets
   VkPipelineLayout m_graphicPipelineLayout{};  // The pipeline layout use with graphics pipeline
 
   // Shaders
@@ -711,13 +730,36 @@ private:
 
 
   // Scene information buffer (UBO)
-  nvsamples::GltfSceneResource m_sceneResource{};  // The GLTF scene resource, contains all the buffers and data for the scene
-  std::vector<nvvk::Image> m_textures{};           // Textures used in the scene
+  nvsamples::GltfSceneResource m_sceneResource{};
+  // The GLTF scene resource, contains all the buffers and data for the scene
+  std::vector<nvvk::Image> m_textures{};  // Textures used in the scene
 
   nvshaders::SkySimple     m_skySimple{};       // Sky rendering
   nvshaders::Tonemapper    m_tonemapper{};      // Tonemapper for post-processing effects
   shaderio::TonemapperData m_tonemapperData{};  // Tonemapper data used to pass parameters to the tonemapper shader
-  glm::vec2 m_metallicRoughnessOverride{-0.01f, -0.01f};  // Override values for metallic and roughness, used in the UI to control the material properties
+  glm::vec2                m_metallicRoughnessOverride{-0.01f, -0.01f};
+  // Override values for metallic and roughness, used in the UI to control the material properties
+
+  // Ray Tracing Pipeline Components
+  nvvk::DescriptorPack m_rtDescPack;          // Ray tracing descriptor bindings
+  VkPipeline           m_rtPipeline{};        // Ray tracing pipeline
+  VkPipelineLayout     m_rtPipelineLayout{};  // Ray tracing pipeline layout
+
+  // Acceleration Structure Components
+  std::vector<nvvk::AccelerationStructure> m_blasAccel;  // Bottom-level acceleration structures
+  nvvk::AccelerationStructure              m_tlasAccel;  // Top-level acceleration structure
+
+  // Direct SBT management
+  nvvk::Buffer                    m_sbtBuffer;         // Buffer for shader binding table
+  std::vector<uint8_t>            m_shaderHandles;     // Storage for shader group handles
+  VkStridedDeviceAddressRegionKHR m_raygenRegion{};    // Ray generation shader region
+  VkStridedDeviceAddressRegionKHR m_missRegion{};      // Miss shader region
+  VkStridedDeviceAddressRegionKHR m_hitRegion{};       // Hit shader region
+  VkStridedDeviceAddressRegionKHR m_callableRegion{};  // Callable shader region
+
+  // Ray Tracing Properties
+  VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
+  VkPhysicalDeviceAccelerationStructurePropertiesKHR m_asProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
 };
 
 
@@ -736,12 +778,17 @@ int main(int argc, char** argv)
 
   // Setting up the Vulkan context, instance and device extensions
   VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT};
+  VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+  VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
   nvvk::ContextInitInfo vkSetup{
       .instanceExtensions = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME},
       .deviceExtensions =
           {
               {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME},
               {VK_EXT_SHADER_OBJECT_EXTENSION_NAME, &shaderObjectFeatures},
+              {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, &accelFeature},     // Build acceleration structures
+              {VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, &rtPipelineFeature},  // Use vkCmdTraceRaysKHR
+              {VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME},                  // Required by ray tracing pipeline
           },
   };
   if(!appInfo.headless)
@@ -783,9 +830,10 @@ int main(int argc, char** argv)
   application.init(appInfo);
 
   // Elements added to the application
-  auto tutorial   = std::make_shared<RtFoundation>();          // Our tutorial element
-  auto elemCamera = std::make_shared<nvapp::ElementCamera>();  // Element to control the camera movement
-  auto windowTitle = std::make_shared<nvapp::ElementDefaultWindowTitle>();  // Element displaying the window title with application name and size
+  auto tutorial    = std::make_shared<RtFoundation>();          // Our tutorial element
+  auto elemCamera  = std::make_shared<nvapp::ElementCamera>();  // Element to control the camera movement
+  auto windowTitle = std::make_shared<nvapp::ElementDefaultWindowTitle>();
+  // Element displaying the window title with application name and size
   auto windowMenu = std::make_shared<nvapp::ElementDefaultMenu>();  // Element displaying a menu, File->Exit ...
   auto camManip   = tutorial->getCameraManipulator();
   elemCamera->setCameraManipulator(camManip);
