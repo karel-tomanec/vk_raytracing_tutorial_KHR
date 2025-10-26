@@ -60,6 +60,69 @@ struct HitPayload
   int    depth;   // Current recursion depth (for limiting bounces)
 };
 
+//-----------------------------------------------------------------------
+// SHADOW TESTING
+//-----------------------------------------------------------------------
+float testShadow(float3 worldPos, float3 worldNormal, float3 lightDirection, GltfPunctual light)
+{
+  RayDesc shadowRay;
+  shadowRay.Origin    = worldPos + worldNormal * 0.001;  // Offset to avoid self-intersection
+  shadowRay.Direction = normalize(lightDirection);
+  shadowRay.TMin      = 0.001;
+  shadowRay.TMax      = light.type == GltfLightType::eDirectional ? INFINITE : length(lightDirection);
+
+  // Create a simple payload for shadow ray
+  HitPayload shadowPayload;
+  shadowPayload.depth = 0;
+
+  // Trace the shadow ray with optimized flags
+  TraceRay(topLevelAS, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xff, 0, 0, 0,
+           shadowRay, shadowPayload);
+
+  // If the shadow ray hit something, the light is occluded
+  return shadowPayload.depth != MISS_DEPTH ? 0.0 : 1.0;
+}
+
+//-----------------------------------------------------------------------
+// Handles sky override, point light distance attenuation, and spot light cone attenuation
+//-----------------------------------------------------------------------
+GltfPunctual processLight(GltfSceneInfo sceneInfo, float3 worldPos)
+{
+  GltfPunctual light = sceneInfo.punctualLights[0];  // Using the first light for simplicity
+
+  // Sky override: replace punctual light with sun parameters
+  if(sceneInfo.useSky == 1)
+  {
+    light.direction = sceneInfo.skySimpleParam.sunDirection;
+    light.color     = sceneInfo.skySimpleParam.sunColor;
+    light.intensity = sceneInfo.skySimpleParam.sunIntensity;
+    light.type      = GltfLightType::eDirectional;
+  }
+
+  // Point light: calculate direction and apply distance attenuation
+  if(light.type == GltfLightType::ePoint)
+  {
+    light.direction = light.position - worldPos;
+    float d         = length(light.direction);
+    light.intensity /= (d * d);  // Inverse square law
+  }
+  // Spot light: calculate direction, apply distance and cone attenuation
+  else if(light.type == GltfLightType::eSpot)
+  {
+    float3 lightDir = light.position - worldPos;
+    float  d        = length(lightDir);
+    light.intensity /= (d * d);  // Distance attenuation
+
+    // Cone attenuation
+    float theta         = dot(normalize(lightDir), normalize(light.direction));
+    float spotIntensity = clamp((theta - cos(light.coneAngle)) / (1.0 - cos(light.coneAngle)), 0.0, 1.0);
+    light.intensity *= spotIntensity;
+    light.direction = lightDir;
+  }
+
+  return light;
+}
+
 // Ray generation shader - entry point for each pixel
 [shader("raygeneration")]
 void rgenMain()
@@ -136,12 +199,19 @@ void rchitMain(inout HitPayload payload, in BuiltInTriangleIntersectionAttribute
   float  metallic  = material.metallicFactor;
   float  roughness = material.roughnessFactor;
 
+  // Process light with sky override and distance attenuation
+  GltfPunctual light = processLight(sceneInfo, worldPos);
+
   float3 N = normalize(worldNormal);
   float3 V = -WorldRayDirection();
-  float3 L = normalize(sceneInfo.punctualLights[0].direction);
+  float3 L = normalize(light.direction);
 
+  // Test for shadows
+  float shadowFactor = testShadow(worldPos, N, light.direction, light);
+
+  // Calculate PBR lighting with shadow factor
   float3 color = pbrMetallicRoughness(albedo, metallic, roughness, N, V, L);
-  color *= sceneInfo.punctualLights[0].color * sceneInfo.punctualLights[0].intensity;
+  color *= light.color * light.intensity * shadowFactor;
 
   payload.color = color;
 }
