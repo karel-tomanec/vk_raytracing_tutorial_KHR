@@ -245,6 +245,9 @@ public:
     // Setting panel
     if(ImGui::Begin("Settings"))
     {
+      // Ray tracing toggle
+      ImGui::Checkbox("Use Ray Tracing", &m_useRayTracing);
+
       if(ImGui::CollapsingHeader("Camera"))
         nvgui::CameraWidget(m_cameraManip);
       if(ImGui::CollapsingHeader("Environment"))
@@ -316,7 +319,14 @@ public:
     // Update the scene information buffer, this cannot be done in between dynamic rendering
     updateSceneBuffer(cmd);
 
-    rasterScene(cmd);
+    if(m_useRayTracing)
+    {
+      raytraceScene(cmd);
+    }
+    else
+    {
+      rasterScene(cmd);
+    }
 
     postProcess(cmd);
   }
@@ -349,7 +359,14 @@ public:
     if(reload)
     {
       vkQueueWaitIdle(m_app->getQueue(0).queue);
-      compileAndCreateGraphicsShaders();  // Recompile shaders on F5 key press
+      if(m_useRayTracing)
+      {
+        createRayTracingPipeline();
+      }
+      else
+      {
+        compileAndCreateGraphicsShaders();
+      }
     }
   }
 
@@ -586,8 +603,10 @@ public:
     const glm::mat4& viewMatrix = m_cameraManip->getViewMatrix();
     const glm::mat4& projMatrix = m_cameraManip->getPerspectiveMatrix();
 
-    m_sceneResource.sceneInfo.viewProjMatrix = projMatrix * viewMatrix;  // Combine the view and projection matrices
-    m_sceneResource.sceneInfo.cameraPosition = m_cameraManip->getEye();  // Get the camera position
+    m_sceneResource.sceneInfo.viewProjMatrix = projMatrix * viewMatrix;   // Combine the view and projection matrices
+    m_sceneResource.sceneInfo.projInvMatrix  = glm::inverse(projMatrix);  // Inverse projection matrix
+    m_sceneResource.sceneInfo.viewInvMatrix  = glm::inverse(viewMatrix);  // Inverse view matrix
+    m_sceneResource.sceneInfo.cameraPosition = m_cameraManip->getEye();   // Get the camera position
     m_sceneResource.sceneInfo.instances      = (shaderio::GltfInstance*)m_sceneResource.bInstances.address;
     // Get the address of the instance buffer
     m_sceneResource.sceneInfo.meshes = (shaderio::GltfMesh*)m_sceneResource.bMeshes.address;
@@ -1081,6 +1100,49 @@ public:
                                       VK_IMAGE_LAYOUT_GENERAL});
   }
 
+  void raytraceScene(VkCommandBuffer cmd)
+  {
+    NVVK_DBG_SCOPE(cmd);  // <-- Helps to debug in NSight
+
+    // Ray trace pipeline
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);
+
+    // Bind the descriptor sets for the graphics pipeline (making textures available to the shaders)
+    const VkBindDescriptorSetsInfo bindDescriptorSetsInfo{.sType      = VK_STRUCTURE_TYPE_BIND_DESCRIPTOR_SETS_INFO,
+                                                          .stageFlags = VK_SHADER_STAGE_ALL,
+                                                          .layout     = m_rtPipelineLayout,
+                                                          .firstSet   = 0,
+                                                          .descriptorSetCount = 1,
+                                                          .pDescriptorSets    = m_descPack.getSetPtr()};
+    vkCmdBindDescriptorSets2(cmd, &bindDescriptorSetsInfo);
+
+    // Push descriptor sets for ray tracing
+    nvvk::WriteSetContainer write{};
+    write.append(m_rtDescPack.makeWrite(shaderio::BindingPoints::eTlas), m_tlasAccel);
+    write.append(m_rtDescPack.makeWrite(shaderio::BindingPoints::eOutImage), m_gBuffers.getColorImageView(eImgRendered),
+                 VK_IMAGE_LAYOUT_GENERAL);
+    vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipelineLayout, 1, write.size(), write.data());
+
+    // Push constant information
+    shaderio::TutoPushConstant pushValues{
+        .sceneInfoAddress = (shaderio::GltfSceneInfo*)m_sceneResource.bSceneInfo.address,
+    };
+    const VkPushConstantsInfo pushInfo{.sType      = VK_STRUCTURE_TYPE_PUSH_CONSTANTS_INFO,
+                                       .layout     = m_rtPipelineLayout,
+                                       .stageFlags = VK_SHADER_STAGE_ALL,
+                                       .size       = sizeof(shaderio::TutoPushConstant),
+                                       .pValues    = &pushValues};
+    vkCmdPushConstants2(cmd, &pushInfo);
+
+    // Ray trace
+    const VkExtent2D& size = m_app->getViewportSize();
+    vkCmdTraceRaysKHR(cmd, &m_raygenRegion, &m_missRegion, &m_hitRegion, &m_callableRegion, size.width, size.height, 1);
+
+    // Barrier to make sure the image is ready for Tonemapping
+    nvvk::cmdMemoryBarrier(cmd, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+  }
+
+
   void onLastHeadlessFrame() override
   {
     m_app->saveImageToFile(m_gBuffers.getColorImage(eImgTonemapped), m_gBuffers.getSize(),
@@ -1098,6 +1160,9 @@ private:
   nvvk::SamplerPool      m_samplerPool{};      // Texture sampler pool, used to acquire texture samplers for images
   nvvk::GBuffer          m_gBuffers{};         // The G-Buffer
   nvslang::SlangCompiler m_slangCompiler{};    // The Slang compiler used to compile the shaders
+
+  // Ray tracing toggle
+  bool m_useRayTracing = true;  // Set to true to use ray tracing, false for rasterization
 
   // Camera manipulator
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()};
